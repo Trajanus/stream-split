@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -12,9 +13,12 @@ namespace AudioStreamPoc
 {
     class Program
     {
+        public static long BytesWrittenThreshold = 100000;
+
         public static WaveWriter writer;
         public static WasapiCapture staticCapture;
         public static int dumpCounter = 0;
+        public static long bytesWritten = 0;
         static void Main(string[] args)
         {
             using (WasapiCapture capture = new WasapiLoopbackCapture())
@@ -38,14 +42,23 @@ namespace AudioStreamPoc
             short[] buffer = new short[e.ByteCount / 2];
             Buffer.BlockCopy(e.Data, 0, buffer, 0, e.ByteCount);
 
-            var silenceCount = buffer.Count(level => level == 0);
-            if (silenceCount / buffer.Count() > .9)
+            if(buffer.All(level => level == 0))
             {
-                Console.WriteLine($"silence threshold hit with value of: {silenceCount / buffer.Count()}");
+                Console.WriteLine("silence detected");
                 if (!writer.IsDisposed)
                 {
                     writer.Dispose();
-                    dumpCounter++;
+
+                    if(bytesWritten >= BytesWrittenThreshold)
+                    {
+                        bytesWritten = 0;
+                        dumpCounter++;
+                    }
+                    else
+                    {
+                        File.Delete($"dump{dumpCounter}.wav");
+                    }
+                    
                 }
             }
             else
@@ -55,6 +68,7 @@ namespace AudioStreamPoc
                     writer = new WaveWriter($"dump{dumpCounter}.wav", staticCapture.WaveFormat);
                 }
                 writer.Write(e.Data, e.Offset, e.ByteCount);
+                bytesWritten += e.ByteCount;
             }
         }
 

@@ -13,6 +13,7 @@ using PlaylistsNET.Content;
 using CSCore.MediaFoundation;
 using CSCore.Codecs;
 using System.Text.RegularExpressions;
+using log4net;
 
 namespace AudioStreamPoc
 {
@@ -25,6 +26,8 @@ namespace AudioStreamPoc
         public static long bytesWritten = 0;
         public static readonly string InvalidCharacters = "<>:\"/\\|?*";
 
+        public static ILog Log = LogManager.GetLogger(nameof(AudioStreamPoc));
+
 
         static void Main(string[] args)
         {
@@ -35,6 +38,7 @@ namespace AudioStreamPoc
                 writer = new WaveWriter($"dump{dumpCounter}.wav", capture.WaveFormat);
                 capture.DataAvailable += DataAvailable;
                 capture.Start();
+                Log.Info("Capture started, press any key to finish audio capture and start conversion to mp3 files.");
                 Console.ReadKey();
                 capture.Stop();
                 if (!writer.IsDisposed)
@@ -63,7 +67,7 @@ namespace AudioStreamPoc
 
             if(buffer.All(level => level == 0))
             {
-                Console.WriteLine("silence detected");
+                Log.Info("silence detected");
                 if (!writer.IsDisposed)
                 {
                     writer.Dispose();
@@ -182,14 +186,14 @@ namespace AudioStreamPoc
         {
             if (!File.Exists(wavFilePath))
             {
-                Console.WriteLine($"Unable to find wav file {wavFilePath}");
+                Log.Error($"Unable to find wav file {wavFilePath}");
                 return;
             }
 
             var supportedFormats = MediaFoundationEncoder.GetEncoderMediaTypes(AudioSubTypes.MpegLayer3);
             if (!supportedFormats.Any())
             {
-                Console.WriteLine("The current platform does not support mp3 encoding.");
+                Log.Error("The current platform does not support mp3 encoding.");
                 return;
             }
 
@@ -209,14 +213,14 @@ namespace AudioStreamPoc
                             .First(x => x.Channels == source.WaveFormat.Channels)
                             .SampleRate;
 
-                    Console.WriteLine("Samplerate {0} -> {1}", source.WaveFormat.SampleRate, sampleRate);
-                    Console.WriteLine("Channels {0} -> {1}", source.WaveFormat.Channels, 2);
+                    Log.Info($"Samplerate {source.WaveFormat.SampleRate} -> {sampleRate}");
+                    Log.Info($"Channels {source.WaveFormat.Channels} -> {2}");
                     source = source.ChangeSampleRate(sampleRate);
                 }
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                Console.WriteLine("Format not supported.");
+                Log.Error("Format not supported.", ex);
                 return;
             }
 
@@ -231,7 +235,8 @@ namespace AudioStreamPoc
                         encoder.Write(buffer, 0, read);
 
                         Console.CursorLeft = 0;
-                        Console.Write("{0:P}/{1:P}", (double)source.Position / source.Length, 1);
+                        string writePercentage = string.Format("{0:P}/{1:P}", (double)source.Position / source.Length, 1);
+                        Log.Info(writePercentage);
                     }
                 }
             }

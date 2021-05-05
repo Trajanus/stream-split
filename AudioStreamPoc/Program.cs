@@ -1,15 +1,8 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 using CSCore;
-using CSCore.SoundIn;
-using CSCore.Codecs.WAV;
-using CSCore.Codecs.MP3;
 using PlaylistsNET.Models;
-using PlaylistsNET.Content;
 using CSCore.MediaFoundation;
 using CSCore.Codecs;
 using System.Text.RegularExpressions;
@@ -21,18 +14,12 @@ namespace AudioStreamPoc
     class Program
     {
         // see https://docs.microsoft.com/en-us/windows/win32/debug/system-error-codes
-        public static readonly int ERROR_BAD_ARGUMENTS = 160;
-        public static readonly int ERROR_FILE_NOT_FOUND = 2;
+        private static readonly int ERROR_BAD_ARGUMENTS = 160;
+        private static readonly int ERROR_FILE_NOT_FOUND = 2;
 
-        public static long BytesWrittenThreshold = 100000;
-        public static WaveWriter writer;
-        public static WasapiCapture staticCapture;
-        public static int dumpCounter = 0;
-        public static long bytesWritten = 0;
-        public static readonly string InvalidCharacters = "<>:\"/\\|?*";
+        private static readonly string InvalidCharacters = "<>:\"/\\|?*";
 
-        public static ILog Log = LogManager.GetLogger(nameof(AudioStreamPoc));
-
+        private static ILog Log = LogManager.GetLogger(nameof(AudioStreamPoc));
 
         static void Main(string[] args)
         {
@@ -51,36 +38,24 @@ namespace AudioStreamPoc
                     Environment.Exit(ERROR_FILE_NOT_FOUND);
                 }
 
-                using (WasapiCapture capture = new WasapiLoopbackCapture())
-                {
-                    staticCapture = capture;
-                    capture.Initialize();
-                    writer = new WaveWriter($"dump{dumpCounter}.wav", capture.WaveFormat);
-                    capture.DataAvailable += DataAvailable;
-                    capture.Start();
-                    Log.Info("Capture started, press any key to finish audio capture and start conversion to mp3 files.");
-                    Console.ReadKey();
-                    capture.Stop();
-                    if (!writer.IsDisposed)
-                    {
-                        writer.Dispose();
-                    }
-                }
-
-                //var examplePlaylist = GeneratePlaylist();
-
                 string serializedPlaylist = File.ReadAllText(playlistFilepath);
-                M3uPlaylist examplePlaylist = JsonConvert.DeserializeObject<M3uPlaylist>(serializedPlaylist);
+                M3uPlaylist playlist = JsonConvert.DeserializeObject<M3uPlaylist>(serializedPlaylist);
+
+                PlaylistCapture playlistCapture = new PlaylistCapture(playlist);
+                playlistCapture.StartCapture();
+                Log.Info("Capture started, press any key to finish audio capture and start conversion to mp3 files.\n");
+                Console.ReadKey();
+                playlistCapture.StopCapture();
 
                 int tracksWrittenCounter = 0;
-                foreach (var entry in examplePlaylist.PlaylistEntries)
+                foreach (var entry in playlist.PlaylistEntries)
                 {
                     // eliminate invalid characters from the track title to ensure the file saves
                     Regex pattern = new Regex($"[{InvalidCharacters}]");
                     string sanitizedEntryTitle = pattern.Replace(entry.Title, string.Empty);
 
                     var mp3Filename = $"{sanitizedEntryTitle}.mp3";
-                    var wavFilename = $"dump{tracksWrittenCounter}.wav";
+                    var wavFilename = playlistCapture.GetFileName(entry);
                     var successful = ConvertWavToMp3(wavFilename, mp3Filename);
                     tracksWrittenCounter++;
 
@@ -103,40 +78,6 @@ namespace AudioStreamPoc
             Log.Info("Finished mp3 conversion, press any key to close.");
             Console.ReadKey();
         }
-
-        private static void DataAvailable(object s, DataAvailableEventArgs e)
-        {
-            short[] buffer = new short[e.ByteCount / 2];
-            Buffer.BlockCopy(e.Data, 0, buffer, 0, e.ByteCount);
-
-            if(buffer.All(level => level == 0))
-            {
-                if (!writer.IsDisposed)
-                {
-                    writer.Dispose();
-
-                    if(bytesWritten >= BytesWrittenThreshold)
-                    {
-                        bytesWritten = 0;
-                        dumpCounter++;
-                    }
-                    else
-                    {
-                        File.Delete($"dump{dumpCounter}.wav");
-                    }
-                }
-            }
-            else
-            {
-                if (writer.IsDisposed)
-                {
-                    writer = new WaveWriter($"dump{dumpCounter}.wav", staticCapture.WaveFormat);
-                }
-                writer.Write(e.Data, e.Offset, e.ByteCount);
-                bytesWritten += e.ByteCount;
-            }
-        }
-
 
         private static M3uPlaylist GeneratePlaylist()
         {

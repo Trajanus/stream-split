@@ -14,11 +14,16 @@ using CSCore.MediaFoundation;
 using CSCore.Codecs;
 using System.Text.RegularExpressions;
 using log4net;
+using Newtonsoft.Json;
 
 namespace AudioStreamPoc
 {
     class Program
     {
+        // see https://docs.microsoft.com/en-us/windows/win32/debug/system-error-codes
+        public static readonly int ERROR_BAD_ARGUMENTS = 160;
+        public static readonly int ERROR_FILE_NOT_FOUND = 2;
+
         public static long BytesWrittenThreshold = 100000;
         public static WaveWriter writer;
         public static WasapiCapture staticCapture;
@@ -31,33 +36,72 @@ namespace AudioStreamPoc
 
         static void Main(string[] args)
         {
-            using (WasapiCapture capture = new WasapiLoopbackCapture())
+            try
             {
-                staticCapture = capture;
-                capture.Initialize();
-                writer = new WaveWriter($"dump{dumpCounter}.wav", capture.WaveFormat);
-                capture.DataAvailable += DataAvailable;
-                capture.Start();
-                Log.Info("Capture started, press any key to finish audio capture and start conversion to mp3 files.");
-                Console.ReadKey();
-                capture.Stop();
-                if (!writer.IsDisposed)
+                if (0 == args.Length)
                 {
-                    writer.Dispose();
+                    Log.Error("No playlist filepath was provided as input, this is required.");
+                    Environment.Exit(ERROR_BAD_ARGUMENTS);
                 }
-            }
 
-            var examplePlaylist = GeneratePlaylist();
-            int tracksWrittenCounter = 0;
-            foreach(var entry in examplePlaylist.PlaylistEntries)
+                string playlistFilepath = args[0];
+                if (!File.Exists(playlistFilepath))
+                {
+                    Log.Error($"Unable to find a file at {playlistFilepath}");
+                    Environment.Exit(ERROR_FILE_NOT_FOUND);
+                }
+
+                using (WasapiCapture capture = new WasapiLoopbackCapture())
+                {
+                    staticCapture = capture;
+                    capture.Initialize();
+                    writer = new WaveWriter($"dump{dumpCounter}.wav", capture.WaveFormat);
+                    capture.DataAvailable += DataAvailable;
+                    capture.Start();
+                    Log.Info("Capture started, press any key to finish audio capture and start conversion to mp3 files.");
+                    Console.ReadKey();
+                    capture.Stop();
+                    if (!writer.IsDisposed)
+                    {
+                        writer.Dispose();
+                    }
+                }
+
+                //var examplePlaylist = GeneratePlaylist();
+
+                string serializedPlaylist = File.ReadAllText(playlistFilepath);
+                M3uPlaylist examplePlaylist = JsonConvert.DeserializeObject<M3uPlaylist>(serializedPlaylist);
+
+                int tracksWrittenCounter = 0;
+                foreach (var entry in examplePlaylist.PlaylistEntries)
+                {
+                    // eliminate invalid characters from the track title to ensure the file saves
+                    Regex pattern = new Regex($"[{InvalidCharacters}]");
+                    string sanitizedEntryTitle = pattern.Replace(entry.Title, string.Empty);
+
+                    var mp3Filename = $"{sanitizedEntryTitle}.mp3";
+                    var wavFilename = $"dump{tracksWrittenCounter}.wav";
+                    var successful = ConvertWavToMp3(wavFilename, mp3Filename);
+                    tracksWrittenCounter++;
+
+                    if (successful)
+                    {
+                        var fileMetadata = TagLib.File.Create(mp3Filename);
+                        fileMetadata.Tag.Album = entry.Album;
+                        fileMetadata.Tag.Performers = new string[] { entry.AlbumArtist };
+                        fileMetadata.Tag.Title = entry.Title;
+                        fileMetadata.Save();
+
+                        File.Delete(wavFilename);
+                    }
+                }
+            }catch(Exception ex)
             {
-                // eliminate invalid characters from the track title to ensure the file saves
-                Regex pattern = new Regex($"[{InvalidCharacters}]");
-                string sanitizedEntryTitle = pattern.Replace(entry.Title, string.Empty);
-
-                ConvertWavToMp3($"dump{tracksWrittenCounter}.wav", $"{sanitizedEntryTitle}.mp3");
-                tracksWrittenCounter++;
+                Log.Error("Unhandled exception", ex);
             }
+
+            Log.Info("Finished mp3 conversion, press any key to close.");
+            Console.ReadKey();
         }
 
         private static void DataAvailable(object s, DataAvailableEventArgs e)
@@ -67,7 +111,6 @@ namespace AudioStreamPoc
 
             if(buffer.All(level => level == 0))
             {
-                Log.Info("silence detected");
                 if (!writer.IsDisposed)
                 {
                     writer.Dispose();
@@ -182,19 +225,19 @@ namespace AudioStreamPoc
             return playlist;
         }
 
-        private static void ConvertWavToMp3(string wavFilePath, string mp3FileName)
+        private static bool ConvertWavToMp3(string wavFilePath, string mp3FileName)
         {
             if (!File.Exists(wavFilePath))
             {
                 Log.Error($"Unable to find wav file {wavFilePath}");
-                return;
+                return false;
             }
 
             var supportedFormats = MediaFoundationEncoder.GetEncoderMediaTypes(AudioSubTypes.MpegLayer3);
             if (!supportedFormats.Any())
             {
                 Log.Error("The current platform does not support mp3 encoding.");
-                return;
+                return false;
             }
 
             IWaveSource source;
@@ -221,25 +264,34 @@ namespace AudioStreamPoc
             catch (Exception ex)
             {
                 Log.Error("Format not supported.", ex);
-                return;
+                return false;
             }
 
             using (source)
             {
                 using (var encoder = MediaFoundationEncoder.CreateMP3Encoder(source.WaveFormat, mp3FileName))
                 {
+                    Log.Info($"\nWriting {mp3FileName}. . .");
                     byte[] buffer = new byte[source.WaveFormat.BytesPerSecond];
                     int read;
+                    double logMessageThreshold = .10;
+                    double logMessageIncrement = .10;
                     while ((read = source.Read(buffer, 0, buffer.Length)) > 0)
                     {
                         encoder.Write(buffer, 0, read);
 
                         Console.CursorLeft = 0;
-                        string writePercentage = string.Format("{0:P}/{1:P}", (double)source.Position / source.Length, 1);
-                        Log.Info(writePercentage);
+                        var writePercentage = (double)source.Position / source.Length;
+                        if (writePercentage >= logMessageThreshold)
+                        {
+                            string writePercentageLogMessage = string.Format("{0:P}/{1:P}", writePercentage, 1);
+                            Log.Info(writePercentageLogMessage);
+                            logMessageThreshold += logMessageIncrement;
+                        }
                     }
                 }
             }
+            return true;
         }
     }
 }

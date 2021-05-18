@@ -30,6 +30,10 @@ namespace AudioStreamPoc
                     Log.Error("No playlist filepath was provided as input, this is required.");
                     Environment.Exit(ERROR_BAD_ARGUMENTS);
                 }
+                else
+                {
+                    Log.Info($"Using playlist at filepath: {args[0]}");
+                }
 
                 string playlistFilepath = args[0];
                 if (!File.Exists(playlistFilepath))

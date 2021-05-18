@@ -2,8 +2,10 @@
 using CSCore.SoundIn;
 using PlaylistsNET.Models;
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Threading;
 
 namespace AudioStreamPoc
 {
@@ -13,12 +15,14 @@ namespace AudioStreamPoc
         {
             _playlist = playlist;
             _capture = new WasapiLoopbackCapture();
+            _recordingTimer = new Stopwatch();
         }
 
         private WasapiCapture _capture;
         private WaveWriter _writer;
         private M3uPlaylist _playlist;
         private int _playlistIndex = 0;
+        private Stopwatch _recordingTimer;
 
         private readonly long BytesWrittenThreshold = 100000;
         private long bytesWritten = 0;
@@ -29,6 +33,7 @@ namespace AudioStreamPoc
             string filename = GetFileName(_playlist.PlaylistEntries[_playlistIndex]);
             _writer = new WaveWriter(filename, _capture.WaveFormat);
             _capture.DataAvailable += DataAvailable;
+            _recordingTimer.Start();
             _capture.Start();
         }
 
@@ -48,7 +53,8 @@ namespace AudioStreamPoc
             short[] buffer = new short[e.ByteCount / 2];
             Buffer.BlockCopy(e.Data, 0, buffer, 0, e.ByteCount);
 
-            if (buffer.All(level => level == 0))
+            if (buffer.All(level => level == 0) 
+                && _recordingTimer.ElapsedMilliseconds >= _playlist.PlaylistEntries[_playlistIndex].Duration.TotalMilliseconds)
             {
                 if (!_writer.IsDisposed)
                 {
@@ -58,6 +64,7 @@ namespace AudioStreamPoc
                     {
                         bytesWritten = 0;
                         _playlistIndex++;
+                        _recordingTimer.Restart();
                     }
                     else
                     {

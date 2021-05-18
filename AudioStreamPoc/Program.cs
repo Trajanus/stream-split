@@ -14,10 +14,7 @@ namespace AudioStreamPoc
     class Program
     {
         // see https://docs.microsoft.com/en-us/windows/win32/debug/system-error-codes
-        private static readonly int ERROR_BAD_ARGUMENTS = 160;
         private static readonly int ERROR_FILE_NOT_FOUND = 2;
-
-        private static readonly string InvalidCharacters = "<>:\"/\\|?*";
 
         private static ILog Log = LogManager.GetLogger(nameof(AudioStreamPoc));
 
@@ -25,17 +22,18 @@ namespace AudioStreamPoc
         {
             try
             {
+                string playlistFilepath;
                 if (0 == args.Length)
                 {
-                    Log.Error("No playlist filepath was provided as input, this is required.");
-                    Environment.Exit(ERROR_BAD_ARGUMENTS);
+                    playlistFilepath = GetPlaylistPathInput();
                 }
                 else
                 {
-                    Log.Info($"Using playlist at filepath: {args[0]}");
+                    playlistFilepath = args[0];
                 }
 
-                string playlistFilepath = args[0];
+                Log.Info($"Using playlist at filepath: {playlistFilepath}");
+
                 if (!File.Exists(playlistFilepath))
                 {
                     Log.Error($"Unable to find a file at {playlistFilepath}");
@@ -55,8 +53,7 @@ namespace AudioStreamPoc
                 foreach (var entry in playlist.PlaylistEntries)
                 {
                     // eliminate invalid characters from the track title to ensure the file saves
-                    Regex pattern = new Regex($"[{InvalidCharacters}]");
-                    string sanitizedEntryTitle = pattern.Replace(entry.Title, string.Empty);
+                    string sanitizedEntryTitle = StripInvalidFilenameCharacters(entry.Title);
 
                     var mp3Filename = $"{sanitizedEntryTitle}.mp3";
                     var wavFilename = playlistCapture.GetFileName(entry);
@@ -81,6 +78,11 @@ namespace AudioStreamPoc
 
             Log.Info("Finished mp3 conversion, press any key to close.");
             Console.ReadKey();
+        }
+
+        public static string StripInvalidFilenameCharacters(string filename)
+        {
+            return Path.GetInvalidFileNameChars().Aggregate(filename, (current, c) => current.Replace(c.ToString(), string.Empty));
         }
 
         private static M3uPlaylist GeneratePlaylist()
@@ -237,6 +239,23 @@ namespace AudioStreamPoc
                 }
             }
             return true;
+        }
+
+        private static string GetPlaylistPathInput()
+        {
+            string playlistPath = null;
+            Console.WriteLine("Enter the file path to the playlist and then press enter:");
+            while(null == playlistPath)
+            {
+                playlistPath = Console.ReadLine();
+                if (!File.Exists(playlistPath))
+                {
+                    Console.WriteLine($"Unable to find a file at '{playlistPath}' - enter a valid path and press enter:");
+                    playlistPath = null;
+                }
+            }
+
+            return playlistPath;
         }
     }
 }

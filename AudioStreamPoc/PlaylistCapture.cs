@@ -30,10 +30,7 @@ namespace AudioStreamPoc
         public void StartCapture()
         {
             _capture.Initialize();
-            string filename = GetFileName(_playlist.PlaylistEntries[_playlistIndex]);
-            _writer = new WaveWriter(filename, _capture.WaveFormat);
             _capture.DataAvailable += DataAvailable;
-            _recordingTimer.Start();
             _capture.Start();
         }
 
@@ -53,8 +50,7 @@ namespace AudioStreamPoc
             short[] buffer = new short[e.ByteCount / 2];
             Buffer.BlockCopy(e.Data, 0, buffer, 0, e.ByteCount);
 
-            if (buffer.All(level => level == 0) 
-                && _recordingTimer.ElapsedMilliseconds >= _playlist.PlaylistEntries[_playlistIndex].Duration.TotalMilliseconds)
+            if (_recordingTimer.ElapsedMilliseconds >= _playlist.PlaylistEntries[_playlistIndex].Duration.TotalMilliseconds)
             {
                 if (!_writer.IsDisposed)
                 {
@@ -65,6 +61,10 @@ namespace AudioStreamPoc
                         bytesWritten = 0;
                         _playlistIndex++;
                         _recordingTimer.Restart();
+                        if(_playlistIndex >= _playlist.PlaylistEntries.Count())
+                        {
+                            _capture.DataAvailable -= DataAvailable;
+                        }
                     }
                     else
                     {
@@ -78,10 +78,11 @@ namespace AudioStreamPoc
             }
             else
             {
-                if (_writer.IsDisposed)
+                if (null == _writer || _writer.IsDisposed)
                 {
                     string filename = GetFileName(_playlist.PlaylistEntries[_playlistIndex]);
                     _writer = new WaveWriter(filename, _capture.WaveFormat);
+                    _recordingTimer.Start();
                 }
                 _writer.Write(e.Data, e.Offset, e.ByteCount);
                 bytesWritten += e.ByteCount;
@@ -90,12 +91,7 @@ namespace AudioStreamPoc
 
         public string GetFileName(M3uPlaylistEntry entry)
         {
-            return $"{StripInvalidFilenameCharacters(entry.Title)}.wav";
-        }
-
-        private string StripInvalidFilenameCharacters(string filename)
-        {
-            return Path.GetInvalidFileNameChars().Aggregate(filename, (current, c) => current.Replace(c.ToString(), string.Empty));
+            return $"{Program.StripInvalidFilenameCharacters(entry.Title)}.wav";
         }
     }
 }

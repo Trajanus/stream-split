@@ -50,7 +50,8 @@ namespace AudioStreamPoc
             short[] buffer = new short[e.ByteCount / 2];
             Buffer.BlockCopy(e.Data, 0, buffer, 0, e.ByteCount);
 
-            if (_recordingTimer.ElapsedMilliseconds >= _playlist.PlaylistEntries[_playlistIndex].Duration.TotalMilliseconds)
+            double totalTrackTicks = _playlist.PlaylistEntries[_playlistIndex].Duration.TotalMilliseconds * TimeSpan.TicksPerMillisecond;
+            if (_recordingTimer.ElapsedTicks >= totalTrackTicks)
             {
                 if (!_writer.IsDisposed)
                 {

@@ -1,5 +1,6 @@
 ﻿using CSCore.Codecs.WAV;
 using CSCore.SoundIn;
+using log4net;
 using PlaylistsNET.Models;
 using System;
 using System.Diagnostics;
@@ -11,6 +12,8 @@ namespace AudioStreamPoc
 {
     public class PlaylistCapture
     {
+        private static ILog Log = LogManager.GetLogger(nameof(PlaylistCapture));
+
         public PlaylistCapture(M3uPlaylist playlist)
         {
             _playlist = playlist;
@@ -47,12 +50,11 @@ namespace AudioStreamPoc
 
         private void DataAvailable(object s, DataAvailableEventArgs e)
         {
-            short[] buffer = new short[e.ByteCount / 2];
-            Buffer.BlockCopy(e.Data, 0, buffer, 0, e.ByteCount);
-
             double totalTrackTicks = _playlist.PlaylistEntries[_playlistIndex].Duration.TotalMilliseconds * TimeSpan.TicksPerMillisecond;
             if (_recordingTimer.ElapsedTicks >= totalTrackTicks)
             {
+                _writer.Write(e.Data, e.Offset, e.ByteCount);
+
                 if (!_writer.IsDisposed)
                 {
                     _writer.Dispose();

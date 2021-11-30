@@ -24,6 +24,8 @@ namespace AudioStreamPoc
         private int _playlistIndex = 0;
 
         private readonly long BytesWrittenThreshold = 100000;
+        private readonly long TrackEndCheckByteThreshold = 100000;
+        private readonly short SilentBytesThreshold = 30;
         private long trackBytesWritten = 0;
 
         public void StartCapture()
@@ -57,6 +59,29 @@ namespace AudioStreamPoc
             Log.Debug($"Started recording track: {_playlist.PlaylistEntries[_playlistIndex].Title}; expected bytes in track: {numBytesInTrack}.");
         }
 
+        private int FindSilenceIndex(byte[] audioData)
+        {
+            int contiguousSilentBytes = 0;
+            for(int i = 0; i < audioData.Length; i++)
+            {
+                if(audioData[i] == 0)
+                {
+                    contiguousSilentBytes++;
+                }
+                else
+                {
+                    contiguousSilentBytes = 0;
+                }
+
+                if(contiguousSilentBytes > SilentBytesThreshold)
+                {
+                    return i;
+                }
+            }
+
+            return -1;
+        }
+
         private void DataAvailable(object s, DataAvailableEventArgs e)
         {
             double numBytesInTrack = (_playlist.PlaylistEntries[_playlistIndex].Duration.TotalMilliseconds / 1000) * e.Format.BytesPerSecond;
@@ -66,16 +91,24 @@ namespace AudioStreamPoc
             }
 
             int remainingBytesInTrack = (int)(numBytesInTrack - trackBytesWritten);
-            int bufferSize = remainingBytesInTrack > e.ByteCount ? e.ByteCount : remainingBytesInTrack;
+
+            int silenceIndex = -1;
+            if(remainingBytesInTrack < TrackEndCheckByteThreshold)
+            {
+                silenceIndex = FindSilenceIndex(e.Data);
+                Log.Debug($"SilenceIndex: {silenceIndex}");
+            }
+
+            int bufferSize = silenceIndex > 0 ? silenceIndex : e.ByteCount;
 
             byte[] buffer = new byte[bufferSize];
             Buffer.BlockCopy(e.Data, 0, buffer, 0, bufferSize);
             _writer.Write(buffer, 0, bufferSize);
             trackBytesWritten += bufferSize;
 
-            bool allTrackDataWritten = bufferSize != e.ByteCount;
+            //bool allTrackDataWritten = bufferSize != e.ByteCount;
 
-            if (allTrackDataWritten && trackBytesWritten >= BytesWrittenThreshold)
+            if (silenceIndex > 0 && trackBytesWritten >= BytesWrittenThreshold)
             {
                 _writer.Dispose();
                 trackBytesWritten = 0;

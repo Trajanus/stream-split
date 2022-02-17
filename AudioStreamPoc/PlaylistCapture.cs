@@ -46,7 +46,7 @@ namespace AudioStreamPoc
             _capture.Dispose();
         }
 
-        private void StartNewTrackRecording(double numBytesInTrack)
+        private void StartNewTrackRecording()
         {
             string filename = GetFileName(_playlist.PlaylistEntries[_playlistIndex]);
 
@@ -56,7 +56,6 @@ namespace AudioStreamPoc
             }
 
             _writer = new WaveWriter(filename, _capture.WaveFormat);
-            Log.Debug($"Started recording track: {_playlist.PlaylistEntries[_playlistIndex].Title}; expected bytes in track: {numBytesInTrack}.");
         }
 
         private int FindSilenceIndex(byte[] audioData)
@@ -140,104 +139,46 @@ namespace AudioStreamPoc
         }
 
         private bool started = false;
+
         private void DataAvailable(object s, DataAvailableEventArgs e)
         {
-            if (e.Data.All(item => item == 0))
-            {
-                return;
-            }
             double numBytesInTrack = (_playlist.PlaylistEntries[_playlistIndex].Duration.TotalMilliseconds / 1000) * e.Format.BytesPerSecond;
             int remainingBytesInTrack = (int)(numBytesInTrack - trackBytesWritten);
-            int silenceIndex = -1;
 
-            if (!started)
+            bool bufferIsSilent = e.Data.All(item => item == 0);
+
+            bool trackEndFound = started && remainingBytesInTrack < TrackEndCheckByteThreshold && bufferIsSilent;
+            if (trackEndFound) 
             {
-                Log.Debug($"Started recording track: {_playlist.PlaylistEntries[_playlistIndex].Title}; expected bytes in track: {numBytesInTrack}.\n\n");
-                started = true;
-            }
-
-            if(trackBytesWritten < BytesWrittenThreshold)
-            {
-                Log.Debug("Track Starting . . .");
-                LogDataAvailableBuffer(e.Data);
-            }
-
-            if (remainingBytesInTrack < TrackEndCheckByteThreshold)
-            {
-                Log.Debug("Track Ending . . .");
-                LogDataAvailableBuffer(e.Data);
-                silenceIndex = FindSilenceIndex(e.Data);
-            }
-
-            trackBytesWritten += e.ByteCount;
-
-            if (silenceIndex > 0 && trackBytesWritten >= BytesWrittenThreshold)
-            {
-                _playlistIndex++;
+                _writer.Dispose();
                 trackBytesWritten = 0;
+                _playlistIndex++;
+                if (_playlistIndex >= _playlist.PlaylistEntries.Count())
+                {
+                    _capture.DataAvailable -= DataAvailable;
+                }
                 started = false;
             }
 
+            if (!started)
+            {
+                if (bufferIsSilent)
+                {
+                    return;
+                }
+                else
+                {
+                    Log.Debug($"Started recording track: {_playlist.PlaylistEntries[_playlistIndex].Title}; expected bytes in track: {numBytesInTrack}.\n\n");
+                    StartNewTrackRecording();
+                    started = true;
+                }
+            }
 
+            byte[] buffer = new byte[e.ByteCount];
+            Buffer.BlockCopy(e.Data, 0, buffer, 0, e.ByteCount);
+            _writer.Write(buffer, 0, e.ByteCount);
+            trackBytesWritten += e.ByteCount;
         }
-
-        //private void DataAvailable(object s, DataAvailableEventArgs e)
-        //{
-        //    double numBytesInTrack = (_playlist.PlaylistEntries[_playlistIndex].Duration.TotalMilliseconds / 1000) * e.Format.BytesPerSecond;
-        //    int silenceIndex = -1;
-        //    if (null == _writer || _writer.IsDisposed)
-        //    {
-        //        StartNewTrackRecording(numBytesInTrack);
-        //        silenceIndex = FindSilenceIndex(e.Data);
-        //    }
-
-        //    int remainingBytesInTrack = (int)(numBytesInTrack - trackBytesWritten);
-
-        //    if (remainingBytesInTrack < TrackEndCheckByteThreshold && silenceIndex == -1)
-        //    {
-        //        silenceIndex = FindSilenceIndex(e.Data);
-        //        Log.Debug($"SilenceIndex: {silenceIndex}");
-        //    }
-
-        //    int bufferSize = silenceIndex > 0 ? silenceIndex : e.ByteCount;
-
-        //    byte[] buffer = new byte[bufferSize];
-        //    Buffer.BlockCopy(e.Data, 0, buffer, 0, bufferSize);
-        //    _writer.Write(buffer, 0, bufferSize);
-        //    trackBytesWritten += bufferSize;
-
-        //    //bool allTrackDataWritten = bufferSize != e.ByteCount;
-
-        //    if (silenceIndex > 0 && trackBytesWritten >= BytesWrittenThreshold)
-        //    {
-        //        _writer.Dispose();
-        //        trackBytesWritten = 0;
-        //        _playlistIndex++;
-        //        if (_playlistIndex >= _playlist.PlaylistEntries.Count())
-        //        {
-        //            _capture.DataAvailable -= DataAvailable;
-        //        }
-
-        //        Log.Debug($"{nameof(e.ByteCount)}: {e.ByteCount} at time of track writing.");
-        //        Log.Debug($"{nameof(bufferSize)}: {bufferSize} at time of track writing.");
-        //        Log.Debug($"{nameof(silenceIndex)}: {silenceIndex} at time of track writing.");
-
-        //        if (bufferSize < e.ByteCount)
-        //        {
-        //            Log.Debug($"Adding on {bufferSize} to track {_playlist.PlaylistEntries[_playlistIndex].Title} from prior buffer");
-        //            numBytesInTrack = (long)(_playlist.PlaylistEntries[_playlistIndex].Duration.TotalMilliseconds / 1000) * e.Format.BytesPerSecond;
-        //            StartNewTrackRecording(numBytesInTrack);
-
-        //            int offSet = bufferSize;
-        //            int newBufferSize = e.ByteCount - bufferSize;
-
-        //            byte[] newBuffer = new byte[newBufferSize];
-        //            Buffer.BlockCopy(e.Data, bufferSize, newBuffer, 0, newBufferSize);
-        //            _writer.Write(newBuffer, 0, newBufferSize);
-        //            trackBytesWritten += newBufferSize;
-        //        }
-        //    }
-        //}
 
         public string GetFileName(M3uPlaylistEntry entry)
         {

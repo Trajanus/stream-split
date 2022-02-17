@@ -5,6 +5,7 @@ using PlaylistsNET.Models;
 using System;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 
 namespace AudioStreamPoc
 {
@@ -16,14 +17,16 @@ namespace AudioStreamPoc
         {
             _playlist = playlist;
             _capture = new WasapiLoopbackCapture();
+            _converter = new WavToMp3Converter();
         }
 
         private WasapiCapture _capture;
         private WaveWriter _writer;
         private M3uPlaylist _playlist;
+        private WavToMp3Converter _converter;
+        private string currentWavFilename;
         private int _playlistIndex = 0;
 
-        private readonly long BytesWrittenThreshold = 100000;
         private readonly long TrackEndCheckByteThreshold = 100000;
         private readonly short SilentBytesThreshold = 300;
         private long trackBytesWritten = 0;
@@ -48,14 +51,14 @@ namespace AudioStreamPoc
 
         private void StartNewTrackRecording()
         {
-            string filename = GetFileName(_playlist.PlaylistEntries[_playlistIndex]);
+            currentWavFilename = GetFileName(_playlist.PlaylistEntries[_playlistIndex]);
 
-            if (File.Exists(filename))
+            if (File.Exists(currentWavFilename))
             {
-                File.Delete(filename);
+                File.Delete(currentWavFilename);
             }
 
-            _writer = new WaveWriter(filename, _capture.WaveFormat);
+            _writer = new WaveWriter(currentWavFilename, _capture.WaveFormat);
         }
 
         private int FindSilenceIndex(byte[] audioData)
@@ -150,6 +153,9 @@ namespace AudioStreamPoc
             bool trackEndFound = started && remainingBytesInTrack < TrackEndCheckByteThreshold && bufferIsSilent;
             if (trackEndFound) 
             {
+                M3uPlaylistEntry entry = _playlist.PlaylistEntries[_playlistIndex];
+                Task.Run(() => _converter.CreateMp3FromWav(entry, currentWavFilename));
+
                 _writer.Dispose();
                 trackBytesWritten = 0;
                 _playlistIndex++;

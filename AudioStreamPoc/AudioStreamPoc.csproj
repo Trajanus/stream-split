@@ -63,6 +63,7 @@
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="PlaylistCapture.cs" />
+    <Compile Include="WavToMp3Converter.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="App.config" />

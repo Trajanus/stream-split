@@ -1,20 +1,26 @@
 ﻿using System;
 using System.IO;
 using System.Linq;
-using CSCore;
 using PlaylistsNET.Models;
-using CSCore.MediaFoundation;
-using CSCore.Codecs;
-using System.Text.RegularExpressions;
 using log4net;
 using Newtonsoft.Json;
+using System.Net;
+using System.Configuration;
 
 namespace AudioStreamPoc
 {
+    public class PlaylistPath
+    {
+        public string playlistPath;
+    }
+
     class Program
     {
         // see https://docs.microsoft.com/en-us/windows/win32/debug/system-error-codes
         private static readonly int ERROR_FILE_NOT_FOUND = 2;
+        private static readonly int ERROR_BAD_ENVIRONMENT = 10;
+
+        private static readonly string PlaylistPathEndpointConfigKey = "PlaylistPathEndpoint";
 
         private static ILog Log = LogManager.GetLogger(nameof(AudioStreamPoc));
 
@@ -22,15 +28,51 @@ namespace AudioStreamPoc
         {
             try
             {
-                string playlistFilepath;
-                if (0 == args.Length)
+                if (!HttpListener.IsSupported)
                 {
-                    playlistFilepath = GetPlaylistPathInput();
+                    Log.Error("HttpListener class is not supported on this platform.");
+                    Environment.Exit(ERROR_BAD_ENVIRONMENT);
                 }
-                else
+
+                HttpListener listener = new HttpListener();
+
+                string playlistPathEndpoint = ConfigurationManager.AppSettings.Get(PlaylistPathEndpointConfigKey);
+                listener.Prefixes.Add(playlistPathEndpoint);
+                listener.Start();
+
+                Log.Info($"Listening to {playlistPathEndpoint}");
+
+                // Note: The GetContext method blocks while waiting for a request.
+                HttpListenerContext context = listener.GetContext();
+                HttpListenerRequest request = context.Request;
+
+                string bodyResult = string.Empty;
+                if (request.HasEntityBody)
                 {
-                    playlistFilepath = args[0];
+                    using (Stream body = request.InputStream)
+                    {
+                        using (var reader = new System.IO.StreamReader(body, request.ContentEncoding))
+                        {
+                            bodyResult = reader.ReadToEnd();
+                        }
+                    }
+
                 }
+
+                Log.Info($"Received body from request: {bodyResult}");
+
+                PlaylistPath playlistPath = JsonConvert.DeserializeObject<PlaylistPath>(bodyResult);
+                Log.Info($"Playlist path is: {playlistPath.playlistPath}");
+
+                HttpListenerResponse response = context.Response;
+
+                response.Headers.Clear();
+                response.SendChunked = false;
+                response.StatusCode = (int)HttpStatusCode.OK;
+                response.Close();
+                listener.Stop();
+
+                string playlistFilepath = playlistPath.playlistPath;
 
                 Log.Info($"Using playlist at filepath: {playlistFilepath}");
 
@@ -49,7 +91,8 @@ namespace AudioStreamPoc
                 Console.ReadKey();
                 playlistCapture.StopCapture();
 
-            }catch(Exception ex)
+            }
+            catch(Exception ex)
             {
                 Log.Error("Unhandled exception", ex);
             }

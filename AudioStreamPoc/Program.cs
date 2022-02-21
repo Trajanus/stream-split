@@ -67,10 +67,9 @@ namespace AudioStreamPoc
 
                 }
 
-                Log.Info($"Received body from request: {bodyResult}");
+                Log.Debug($"Received body from request: {bodyResult}");
 
-                PlaylistPath playlistPath = JsonConvert.DeserializeObject<PlaylistPath>(bodyResult);
-                Log.Info($"Playlist path is: {playlistPath.playlistPath}");
+                M3uPlaylist playlist = JsonConvert.DeserializeObject<M3uPlaylist>(bodyResult);
 
                 HttpListenerResponse response = context.Response;
 
@@ -79,19 +78,6 @@ namespace AudioStreamPoc
                 response.StatusCode = (int)HttpStatusCode.OK;
                 response.Close();
                 listener.Stop();
-
-                string playlistFilepath = playlistPath.playlistPath;
-
-                Log.Info($"Using playlist at filepath: {playlistFilepath}");
-
-                if (!File.Exists(playlistFilepath))
-                {
-                    Log.Error($"Unable to find a file at {playlistFilepath}");
-                    Environment.Exit(ERROR_FILE_NOT_FOUND);
-                }
-
-                string serializedPlaylist = File.ReadAllText(playlistFilepath);
-                M3uPlaylist playlist = JsonConvert.DeserializeObject<M3uPlaylist>(serializedPlaylist);
 
                 PlaylistCapture playlistCapture = new PlaylistCapture(playlist);
                 playlistCapture.StartCapture();
@@ -216,6 +202,20 @@ namespace AudioStreamPoc
             }
 
             return playlistPath;
+        }
+
+        private M3uPlaylist ReadPlaylistFromFilePath(string playlistFilepath)
+        {
+            Log.Info($"Using playlist at filepath: {playlistFilepath}");
+
+            if (!File.Exists(playlistFilepath))
+            {
+                Log.Error($"Unable to find a file at {playlistFilepath}");
+                Environment.Exit(ERROR_FILE_NOT_FOUND);
+            }
+
+            string serializedPlaylist = File.ReadAllText(playlistFilepath);
+            return JsonConvert.DeserializeObject<M3uPlaylist>(serializedPlaylist);
         }
     }
 }

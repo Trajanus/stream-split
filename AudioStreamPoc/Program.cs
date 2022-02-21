@@ -6,6 +6,7 @@ using log4net;
 using Newtonsoft.Json;
 using System.Net;
 using System.Configuration;
+using System.Collections.Generic;
 
 namespace AudioStreamPoc
 {
@@ -28,6 +29,13 @@ namespace AudioStreamPoc
         {
             try
             {
+                List<string> audioFilePaths = Directory.EnumerateFiles(Directory.GetCurrentDirectory(), "*.mp3").ToList();
+                audioFilePaths.AddRange(Directory.EnumerateFiles(Directory.GetCurrentDirectory(), "*.wav"));
+                foreach (string audioFilePath in audioFilePaths)
+                {
+                    File.Delete(audioFilePath);
+                }
+
                 if (!HttpListener.IsSupported)
                 {
                     Log.Error("HttpListener class is not supported on this platform.");
@@ -51,7 +59,7 @@ namespace AudioStreamPoc
                 {
                     using (Stream body = request.InputStream)
                     {
-                        using (var reader = new System.IO.StreamReader(body, request.ContentEncoding))
+                        using (var reader = new StreamReader(body, request.ContentEncoding))
                         {
                             bodyResult = reader.ReadToEnd();
                         }
